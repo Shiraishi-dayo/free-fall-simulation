@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>自由落下運動シミュレーション</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+    <style>
+        .container {
+            display: flex;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+            gap: 20px;
+        }
+        .left-container {
+            width: 400px;
+        }
+        .simulation {
+            width: 400px;
+            height: 600px;
+            border: 1px solid #ccc;
+            position: relative;
+            background: #f0f0f0;
+        }
+        .ball {
+            width: 20px;
+            height: 20px;
+            background: red;
+            border-radius: 50%;
+            position: absolute;
+            left: 190px;
+            transition: top 0.05s linear;
+        }
+        .strobe-ball {
+            width: 16px;
+            height: 16px;
+            border: 2px dashed rgba(255, 0, 0, 0.7);
+            border-radius: 50%;
+            position: absolute;
+            left: 192px; /* センタリングのため少し調整 */
+            pointer-events: none;
+        }
+        .chart-container {
+            flex-grow: 1;
+            height: 600px;
+            position: relative;
+        }
+        .controls {
+            text-align: center;
+            margin: 20px;
+        }
+        .status {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            margin: 10px 0;
+        }
+        .grid-line {
+            position: absolute;
+            width: 100%;
+            border-top: 1px dashed #ccc;
+            pointer-events: none;
+        }
+        .grid-label {
+            position: absolute;
+            right: 100%;
+            transform: translateY(-50%);
+            padding-right: 5px;
+            font-size: 12px;
+            color: #666;
+        }
+        .distance-arrow {
+            position: absolute;
+            width: 2px;
+            background: blue;
+            left: 220px;
+            transform-origin: top;
+        }
+        .distance-arrow::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: -4px;
+            border-top: 8px solid blue;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+        }
+        .velocity-label {
+            position: absolute;
+            font-size: 12px;
+            color: blue;
+            white-space: nowrap;
+        }
+        .ground {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 4px;
+            background-color: #663300;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <label>初期高さ (m): </label>
+        <input type="number" id="initialHeight" value="6" min="1" max="10" step="0.5" oninput="updateInitialPosition()">
+        <button onclick="startSimulation()">開始</button>
+        <button onclick="pauseResumeSimulation()">一時停止/再開</button>
+        <button onclick="resetSimulation()">リセット</button>
+    </div>
+    <div class="container">
+        <div class="left-container">
+            <div class="simulation" id="simulation">
+                <div class="ball" id="ball"></div>
+                <div class="ground"></div>
+            </div>
+            <div class="status" id="ballStatus"></div>
+        </div>
+        <div class="chart-container">
+            <canvas id="velocityChart"></canvas>
+        </div>
+    </div>
+    <script>
+        const g = 9.8;
+        let h0 = 6; // 初期高さの初期値
+        let currentStep = 0;
+        const timeStep = 0.1; 
+        let isPaused = false; 
+        let simulationInterval;
+        let arrows = [];
+        let elapsedTime = 0;
+        let strobeBalls = []; // ストロボ効果のためのボールの位置を記録
+        
+        function addGridLines() {
+            const simulation = document.getElementById('simulation');
+            // シミュレーション領域の高さ（ピクセル）
+            const simHeight = 600;
+            // 表示する最大高さ（メートル）
+            const maxHeight = 10;
+            // 各目盛りの間隔（メートル）
+            const gridInterval = 0.5;
+            // ピクセル/メートルの比率
+            const pixelsPerMeter = simHeight / maxHeight;
+            
+            // 目盛りを描画（0mから10mまで）
+            for (let m = 0; m <= maxHeight; m += gridInterval) {
+                const line = document.createElement('div');
+                line.className = 'grid-line';
+                // 下から上に向かってメートル単位で目盛りを配置
+                const pixelPosition = simHeight - (m * pixelsPerMeter);
+                line.style.top = `${pixelPosition}px`;
+                
+                const label = document.createElement('div');
+                label.className = 'grid-label';
+                label.textContent = `${m.toFixed(1)} m`;
+                
+                line.appendChild(label);
+                simulation.appendChild(line);
+            }
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('velocityChart').getContext('2d');
+            return new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: '0.1秒ごとの速度',
+                        data: [],
+                        backgroundColor: 'blue',
+                        pointRadius: 5
+                    }, {
+                        label: '理論値',
+                        data: [],
+                        borderColor: 'rgba(255, 99, 132, 0.5)',
+                        borderDash: [5, 5],
+                        type: 'line',
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            title: {
+                                display: true,
+                                text: '時間 (s)',
+                                font: { size: 16 }
+                            },
+                            min: 0,
+                            max: 2.5,
+                            ticks: {
+                                font: { size: 14 }
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '速度 (m/s) [下向き正]',
+                                font: { size: 16 }
+                            },
+                            min: -1,
+                            max: 12,
+                            ticks: {
+                                font: { size: 14 }
+                            },
+                            grid: {
+                                color: function(context) {
+                                    if (context.tick.value === 0) {
+                                        return 'rgba(0, 0, 0, 0.5)'; // y=0の線を濃い灰色に
+                                    }
+                                    return 'rgba(0, 0, 0, 0.1)'; // その他のグリッド線
+                                },
+                                lineWidth: function(context) {
+                                    if (context.tick.value === 0) {
+                                        return 2; // y=0の線を太く
+                                    }
+                                    return 1; // その他のグリッド線は通常の太さ
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                font: { size: 14 }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function calculateTheoretical() {
+            let theoreticalPoints = [];
+            // 自由落下の理論値: v = g*t (下向き正)
+            for (let t = 0; t <= 2.5; t += 0.01) {
+                theoreticalPoints.push({
+                    x: t,
+                    y: g * t
+                });
+            }
+            return theoreticalPoints;
+        }
+
+        function getHeight(t) {
+            // 自由落下の公式: h = h0 - 1/2 * g * t^2
+            return h0 - 0.5 * g * t * t;
+        }
+
+        function getVelocity(t) {
+            // 自由落下の速度: v = g * t (下向き正)
+            return g * t;
+        }
+
+        // 高さ（メートル）をピクセル位置に変換
+        function heightToPixel(height) {
+            // シミュレーション領域の高さ（ピクセル）
+            const simHeight = 600;
+            // 表示する最大高さ（メートル）
+            const maxHeight = 10;
+            // ピクセル/メートルの比率
+            const pixelsPerMeter = simHeight / maxHeight;
+            
+            // 下からの高さを計算（地面が0、上部が最大）
+            return simHeight - (height * pixelsPerMeter);
+        }
+        
+        // ストロボボールを追加する関数
+        function addStrobeBall(t) {
+            const h = getHeight(t);
+            // 地面以下にはボールを表示しない
+            if (h <= 0) return;
+            
+            const pixelY = heightToPixel(h);
+            const strobeBall = document.createElement('div');
+            strobeBall.className = 'strobe-ball';
+            strobeBall.style.top = `${pixelY}px`;
+            
+            // 時間ラベルを追加
+            const timeLabel = document.createElement('div');
+            timeLabel.style.position = 'absolute';
+            timeLabel.style.left = '160px';
+            timeLabel.style.top = `${pixelY}px`;
+            timeLabel.style.fontSize = '10px';
+            timeLabel.style.color = '#666';
+            timeLabel.textContent = `t=${t.toFixed(1)}s`;
+            
+            document.getElementById('simulation').appendChild(strobeBall);
+            document.getElementById('simulation').appendChild(timeLabel);
+            
+            strobeBalls.push(strobeBall, timeLabel);
+        }
+        
+        // ストロボボールをクリアする
+        function clearStrobeBalls() {
+            strobeBalls.forEach(element => element.remove());
+            strobeBalls = [];
+        }
+
+        function addDistanceArrow(t1, t2) {
+            const h1 = getHeight(t1);
+            const h2 = getHeight(t2);
+            const v1 = getVelocity(t1);
+            
+            const y1 = heightToPixel(h1);
+            const y2 = heightToPixel(h2);
+            const height = Math.abs(y2 - y1);
+            
+            const arrow = document.createElement('div');
+            arrow.className = 'distance-arrow';
+            arrow.style.top = `${Math.min(y1, y2)}px`;
+            arrow.style.height = `${height}px`;
+            
+            const label = document.createElement('div');
+            label.className = 'velocity-label';
+            label.style.top = `${(y1 + y2) / 2}px`;
+            
+            label.style.left = (arrows.length % 3 === 0) ? '240px' : 
+                              (arrows.length % 3 === 1) ? '270px' : '300px';
+            
+            const deltaV = g * (t2 - t1); // 速度変化量（下向き正）
+
+            label.innerHTML = `
+                <tspan x="0" dy="0">v = ${v1.toFixed(1)} m/s</tspan>
+                <tspan x="0" dy="15">Δv = ${deltaV.toFixed(2)} m/s</tspan>
+            `;
+            
+            document.getElementById('simulation').appendChild(arrow);
+            document.getElementById('simulation').appendChild(label);
+            arrows.push(arrow, label);
+            
+            if (arrows.length > 12) {
+                const oldArrow = arrows.shift();
+                const oldLabel = arrows.shift();
+                oldArrow.remove();
+                oldLabel.remove();
+            }
+        }
+
+        function updateSimulation() {
+            const t = currentStep * timeStep;
+            const ball = document.getElementById('ball');
+            const y = getHeight(t);
+            const v = getVelocity(t);
+            const pixelY = heightToPixel(y);
+            
+            ball.style.top = `${pixelY}px`;
+            
+            document.getElementById('ballStatus').innerHTML = `
+                時間: ${t.toFixed(1)} s<br>
+                高さ: ${y.toFixed(2)} m<br>
+                速度: ${v.toFixed(2)} m/s
+            `;
+            
+            if (currentStep > 0) {
+                addDistanceArrow((currentStep - 1) * timeStep, t);
+                // ストロボ効果：前の位置を追加
+                addStrobeBall((currentStep - 1) * timeStep);
+            }
+            
+            // 地面に到達したかチェック
+            if (y <= 0) {
+                // 地面に達した場合は高さを0に固定
+                ball.style.top = `${heightToPixel(0)}px`; // 画面上の0m位置
+                document.getElementById('ballStatus').innerHTML += `<br><strong>地面に到達しました</strong>`;
+                return false; // シミュレーション停止
+            }
+            
+            return true; // シミュレーション続行
+        }
+
+        function clearArrows() {
+            arrows.forEach(arrow => arrow.remove());
+            arrows = [];
+        }
+
+        function updateInitialPosition() {
+            h0 = parseFloat(document.getElementById('initialHeight').value);
+            const pixelY = heightToPixel(h0);
+            const ball = document.getElementById('ball');
+            ball.style.top = `${pixelY}px`;
+            
+            // ステータス表示も更新
+            document.getElementById('ballStatus').innerHTML = `
+                時間: 0.0 s<br>
+                高さ: ${h0.toFixed(2)} m<br>
+                速度: 0.00 m/s
+            `;
+        }
+
+        let velocityChart;
+
+        function startSimulation() {
+            resetSimulation();
+            h0 = parseFloat(document.getElementById('initialHeight').value);
+            
+            // 初期位置を設定
+            const pixelY = heightToPixel(h0);
+            const ball = document.getElementById('ball');
+            ball.style.top = `${pixelY}px`;
+            
+            velocityChart.data.datasets[1].data = calculateTheoretical();
+            
+            simulationInterval = setInterval(() => {
+                if (!isPaused) {
+                    const t = elapsedTime + timeStep;
+                    if (updateSimulation()) {
+                        const v = getVelocity(t - timeStep);
+                        velocityChart.data.datasets[0].data.push({x: t - timeStep, y: v});
+                        velocityChart.update();
+                        currentStep++;
+                        elapsedTime = t;
+                    } else {
+                        clearInterval(simulationInterval);
+                    }
+                }
+            }, 100);
+        }
+
+        function pauseResumeSimulation() {
+            isPaused = !isPaused;
+        }
+
+        function resetSimulation() {
+            clearInterval(simulationInterval);
+            currentStep = 0;
+            isPaused = false;
+            elapsedTime = 0;
+            clearArrows();
+            clearStrobeBalls(); // ストロボボールもクリア
+            
+            h0 = parseFloat(document.getElementById('initialHeight').value);
+            const pixelY = heightToPixel(h0);
+            const ball = document.getElementById('ball');
+            ball.style.top = `${pixelY}px`;
+            
+            document.getElementById('ballStatus').innerHTML = `
+                時間: 0.0 s<br>
+                高さ: ${h0.toFixed(2)} m<br>
+                速度: 0.00 m/s
+            `;
+            
+            velocityChart.data.datasets[0].data = [];
+            velocityChart.data.datasets[1].data = [];
+            velocityChart.update();
+        }
+
+        window.onload = function() {
+            addGridLines();
+            velocityChart = initChart();
+            // 初期位置を設定
+            h0 = parseFloat(document.getElementById('initialHeight').value);
+            const pixelY = heightToPixel(h0);
+            const ball = document.getElementById('ball');
+            ball.style.top = `${pixelY}px`;
+            
+            // 初期状態のステータス表示
+            document.getElementById('ballStatus').innerHTML = `
+                時間: 0.0 s<br>
+                高さ: ${h0.toFixed(2)} m<br>
+                速度: 0.00 m/s
+            `;
+        };
+    </script>.toFixed(2)} m<br>
+                速度: 0.00 m/s
+            `;
+        };
+    </script>
+</body>
+</html>
