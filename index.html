@@ -13,10 +13,10 @@
             gap: 20px;
         }
         .left-container {
-            width: 400px;
+            width: 500px; /* シミュレーション部分を大きくする */
         }
         .simulation {
-            width: 400px;
+            width: 500px; /* シミュレーション部分を大きくする */
             height: 600px;
             border: 1px solid #ccc;
             position: relative;
@@ -28,7 +28,7 @@
             background: red;
             border-radius: 50%;
             position: absolute;
-            left: 190px;
+            left: 240px; /* 中央に配置するよう調整 */
             transition: top 0.05s linear;
         }
         .strobe-ball {
@@ -37,7 +37,7 @@
             border: 2px dashed rgba(255, 0, 0, 0.7);
             border-radius: 50%;
             position: absolute;
-            left: 192px; /* センタリングのため少し調整 */
+            left: 242px; /* 中央に配置するよう調整 */
             pointer-events: none;
         }
         .chart-container {
@@ -74,7 +74,7 @@
             position: absolute;
             width: 2px;
             background: blue;
-            left: 220px;
+            left: 270px; /* 位置調整 */
             transform-origin: top;
         }
         .distance-arrow::after {
@@ -191,7 +191,7 @@
                                 font: { size: 16 }
                             },
                             min: 0,
-                            max: 2.5,
+                            max: 2.0, // 横軸の最大値を2.0秒に変更
                             ticks: {
                                 font: { size: 14 }
                             }
@@ -203,7 +203,7 @@
                                 font: { size: 16 }
                             },
                             min: -1,
-                            max: 12,
+                            max: 15, // 縦軸の最大値を15m/sに変更
                             ticks: {
                                 font: { size: 14 }
                             },
@@ -237,7 +237,7 @@
         function calculateTheoretical() {
             let theoreticalPoints = [];
             // 自由落下の理論値: v = g*t (下向き正)
-            for (let t = 0; t <= 2.5; t += 0.01) {
+            for (let t = 0; t <= 2.0; t += 0.01) { // 2.0秒まで計算
                 theoreticalPoints.push({
                     x: t,
                     y: g * t
@@ -283,7 +283,7 @@
             // 時間ラベルを追加
             const timeLabel = document.createElement('div');
             timeLabel.style.position = 'absolute';
-            timeLabel.style.left = '160px';
+            timeLabel.style.left = '200px'; // 位置調整
             timeLabel.style.top = `${pixelY}px`;
             timeLabel.style.fontSize = '10px';
             timeLabel.style.color = '#666';
@@ -319,8 +319,8 @@
             label.className = 'velocity-label';
             label.style.top = `${(y1 + y2) / 2}px`;
             
-            label.style.left = (arrows.length % 3 === 0) ? '240px' : 
-                              (arrows.length % 3 === 1) ? '270px' : '300px';
+            label.style.left = (arrows.length % 3 === 0) ? '290px' : 
+                              (arrows.length % 3 === 1) ? '320px' : '350px';
             
             const deltaV = g * (t2 - t1); // 速度変化量（下向き正）
 
@@ -462,10 +462,6 @@
             document.getElementById('ballStatus').innerHTML = `
                 時間: 0.0 s<br>
                 高さ: ${h0.toFixed(2)} m<br>
-                速度: 0.00 m/s
-            `;
-        };
-    </script>.toFixed(2)} m<br>
                 速度: 0.00 m/s
             `;
         };
